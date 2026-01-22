@@ -1,0 +1,83 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  dev:
+    name: Deploy DEV
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region ap-south-1 \
+          | docker login --username AWS --password-stdin 528922625383.dkr.ecr.ap-south-1.amazonaws.com
+
+      - name: Build & Push DEV image
+        run: |
+          mvn clean package -DskipTests
+          docker build -t employee-app:dev .
+          docker tag employee-app:dev 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:dev
+          docker push 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:dev
+
+  qa:
+    name: Promote to QA
+    runs-on: ubuntu-latest
+    needs: dev
+
+    steps:
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region ap-south-1 \
+          | docker login --username AWS --password-stdin 528922625383.dkr.ecr.ap-south-1.amazonaws.com
+
+      - name: Promote DEV → QA
+        run: |
+          docker pull 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:dev
+          docker tag 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:dev \
+                     528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:qa
+          docker push 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:qa
+
+  prod:
+    name: Promote to PROD
+    runs-on: ubuntu-latest
+    needs: qa
+
+    steps:
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region ap-south-1 \
+          | docker login --username AWS --password-stdin 528922625383.dkr.ecr.ap-south-1.amazonaws.com
+
+      - name: Promote QA → PROD
+        run: |
+          docker pull 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:qa
+          docker tag 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:qa \
+                     528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:prod
+          docker push 528922625383.dkr.ecr.ap-south-1.amazonaws.com/employee-app:prod
